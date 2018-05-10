@@ -29,6 +29,11 @@ from .parser import Tree
 from .surface import cairo
 from .url import parse_url
 
+IMAGE_RENDERING = {
+    'optimizeQuality': cairo.FILTER_BEST,
+    'optimizeSpeed': cairo.FILTER_FAST,
+}
+
 
 def image(surface, node):
     """Draw an image ``node``."""
@@ -48,14 +53,15 @@ def image(surface, node):
     if image_bytes[:4] == b'\x89PNG':
         png_file = BytesIO(image_bytes)
     elif (image_bytes[:5] in (b'<svg ', b'<?xml', b'<!DOC') or
-            image_bytes[:2] == b'\x1f\x8b'):
+            image_bytes[:2] == b'\x1f\x8b') or b'<svg' in image_bytes:
         if 'x' in node:
             del node['x']
         if 'y' in node:
             del node['y']
         tree = Tree(
             url=url.geturl(), url_fetcher=node.url_fetcher,
-            bytestring=image_bytes, tree_cache=surface.tree_cache)
+            bytestring=image_bytes, tree_cache=surface.tree_cache,
+            unsafe=node.unsafe)
         tree_width, tree_height, viewbox = node_format(
             surface, tree, reference=False)
         if not viewbox:
@@ -88,6 +94,9 @@ def image(surface, node):
         png_file.seek(0)
 
     image_surface = cairo.ImageSurface.create_from_png(png_file)
+    image_surface.pattern = cairo.SurfacePattern(image_surface)
+    image_surface.pattern.set_filter(IMAGE_RENDERING.get(
+        node.get('image-rendering'), cairo.FILTER_GOOD))
 
     node.image_width = image_surface.get_width()
     node.image_height = image_surface.get_height()
@@ -107,6 +116,6 @@ def image(surface, node):
     surface.context.translate(x, y)
     surface.context.scale(scale_x, scale_y)
     surface.context.translate(translate_x, translate_y)
-    surface.context.set_source_surface(image_surface)
+    surface.context.set_source(image_surface.pattern)
     surface.context.paint()
     surface.context.restore()
